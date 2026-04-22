@@ -1,0 +1,16 @@
+.venv/
+.venv_stt/
+.hf_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+deepseek_api_key.txt
+settings/*.json
+Wav2Lip-AI/vendor/
+Wav2Lip-AI/checkpoints/*.pth
+Wav2Lip-AI/inputs/*
+Wav2Lip-AI/outputs/*
+!Wav2Lip-AI/inputs/.gitkeep
+!Wav2Lip-AI/outputs/.gitkeep

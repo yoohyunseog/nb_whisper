@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="ko" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice Context Console</title>
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    crossorigin="anonymous"
+  />
+  <link rel="icon" href="data:," />
+  <style>
+    body {
+      min-height: 100vh;
+      overflow: hidden;
+      background: #0b1017;
+      font-family: "Segoe UI", "Malgun Gothic", Consolas, monospace;
+    }
+    .app-shell {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+    .main-grid {
+      min-height: 0;
+    }
+    .panel-card {
+      min-height: 0;
+      height: 100%;
+      border-color: var(--bs-border-color);
+      background: #111827;
+    }
+    .scroll-area {
+      min-height: 0;
+      overflow: auto;
+    }
+    .status-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: var(--bs-danger);
+      box-shadow: 0 0 18px currentColor;
+      color: var(--bs-danger);
+      flex: 0 0 auto;
+    }
+    .status-dot.live {
+      background: var(--bs-success);
+      color: var(--bs-success);
+    }
+    .ticker {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .topic-box {
+      border-color: rgba(13, 110, 253, .45) !important;
+      background: rgba(13, 110, 253, .12);
+      color: #dbeafe;
+      overflow-wrap: anywhere;
+    }
+    .story-input {
+      min-height: 120px;
+      resize: vertical;
+      line-height: 1.45;
+    }
+    .kv {
+      display: grid;
+      grid-template-columns: 108px minmax(0, 1fr);
+      gap: .5rem;
+      padding: .5rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, .08);
+      font-size: .84rem;
+    }
+    .kv b {
+      color: var(--bs-secondary-color);
+      font-weight: 600;
+    }
+    .kv span {
+      overflow-wrap: anywhere;
+    }
+    .message {
+      max-width: 88%;
+      overflow-wrap: anywhere;
+      word-break: keep-all;
+    }
+    .message.bot {
+      align-self: flex-end;
+    }
+    .meter {
+      height: 9px;
+      overflow: hidden;
+    }
+    .meter > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--bs-success), var(--bs-warning));
+      transition: width .25s ease;
+    }
+    @media (max-width: 991.98px) {
+      body {
+        overflow: auto;
+      }
+      .app-shell {
+        height: auto;
+        min-height: 100vh;
+      }
+      .panel-card {
+        min-height: 280px;
+      }
+    }
+    .container-fluid { width: 100%; margin-right: auto; margin-left: auto; }
+    .row { display: flex; flex-wrap: wrap; }
+    .g-3 { gap: 1rem; }
+    .col-12 { flex: 0 0 auto; width: 100%; }
+    .d-flex { display: flex; }
+    .flex-column { flex-direction: column; }
+    .flex-grow-1 { flex-grow: 1; }
+    .gap-2 { gap: .5rem; }
+    .gap-3 { gap: 1rem; }
+    .w-100 { width: 100%; }
+    .h-100 { height: 100%; }
+    .card {
+      border: 1px solid rgba(255,255,255,.14);
+      background: #111827;
+      color: #d8e2ef;
+    }
+    .card-header {
+      padding: .75rem 1rem;
+      border-bottom: 1px solid rgba(255,255,255,.14);
+      background: #151f2e;
+    }
+    .card-body { padding: 1rem; }
+    .navbar {
+      display: flex;
+      align-items: center;
+      min-height: 58px;
+    }
+    .border-bottom { border-bottom: 1px solid rgba(255,255,255,.14); }
+    .bg-body-tertiary { background: #101720; }
+    .px-0 { padding-left: 0; padding-right: 0; }
+    .px-3 { padding-left: 1rem; padding-right: 1rem; }
+    .py-3 { padding-top: 1rem; padding-bottom: 1rem; }
+    .mb-0 { margin-bottom: 0; }
+    .mb-2 { margin-bottom: .5rem; }
+    .mb-3 { margin-bottom: 1rem; }
+    .mt-3 { margin-top: 1rem; }
+    .mt-4 { margin-top: 1.5rem; }
+    .rounded { border-radius: .375rem; }
+    .border { border: 1px solid rgba(255,255,255,.14); }
+    .small { font-size: .875rem; }
+    .text-secondary { color: #9aa7b7; }
+    .text-body { color: #eef2f7; }
+    .form-control {
+      display: block;
+      width: 100%;
+      padding: .5rem .75rem;
+      color: #d8e2ef;
+      background: #0f1620;
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: .375rem;
+    }
+    .form-label { display: block; margin-bottom: .5rem; }
+    .form-text { color: #9aa7b7; font-size: .825rem; }
+    .badge {
+      display: inline-block;
+      padding: .35em .65em;
+      border-radius: .375rem;
+      background: #334155;
+      color: #e5e7eb;
+    }
+    @media (min-width: 992px) {
+      .col-lg-3 { flex: 0 0 auto; width: 25%; }
+      .col-lg-4 { flex: 0 0 auto; width: 33.333333%; }
+      .col-lg-5 { flex: 0 0 auto; width: 41.666667%; }
+    }
+    @media (min-width: 1200px) {
+      .col-xl-3 { flex: 0 0 auto; width: 25%; }
+      .col-xl-6 { flex: 0 0 auto; width: 50%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="navbar border-bottom bg-body-tertiary px-3">
+      <div class="container-fluid px-0 gap-3 flex-nowrap">
+        <span id="dot" class="status-dot"></span>
+        <h1 class="navbar-brand mb-0 fs-5 text-nowrap">Voice Context Console</h1>
+        <span id="ticker" class="ticker text-secondary small flex-grow-1">waiting for voice engine</span>
+      </div>
+    </header>
+
+    <main class="container-fluid main-grid py-3">
+      <div class="row g-3 h-100">
+        <section class="col-12 col-lg-4 col-xl-3 d-flex">
+          <div class="card panel-card w-100">
+            <h2 class="card-header fs-6 mb-0">Current Context</h2>
+            <div class="card-body scroll-area">
+              <div class="topic-box border rounded p-3 small mb-3" id="currentTopic">
+                System context is waiting for live speech.
+              </div>
+
+              <label for="storyRequirements" class="form-label small text-secondary">
+                Lyric Story Board user requirements
+              </label>
+              <textarea
+                id="storyRequirements"
+                class="form-control story-input mb-2"
+                placeholder="Write the story requirements the AI must follow for Lyric Story Board."
+              ></textarea>
+              <div id="storyRequirementsState" class="form-text mb-3">Autosave: loading...</div>
+
+              <div class="kv"><b>Topic</b><span id="topicState">-</span></div>
+              <div class="kv"><b>Content</b><span id="contentState">-</span></div>
+              <div class="kv"><b>Place</b><span id="placeState">Voice Context Console</span></div>
+              <div class="kv"><b>Location</b><span id="locationState">local PC audio session</span></div>
+              <div class="kv"><b>Time</b><span id="timeState">-</span></div>
+              <div class="kv"><b>Doing</b><span id="doingState">listening</span></div>
+              <div class="kv"><b>Who</b><span id="whoState">-</span></div>
+              <div class="kv"><b>What</b><span id="whatState">-</span></div>
+              <div class="kv"><b>Where</b><span id="whereState">-</span></div>
+              <div class="kv"><b>When</b><span id="whenState">-</span></div>
+              <div class="kv"><b>Why</b><span id="whyState">-</span></div>
+              <div class="kv"><b>How</b><span id="howState">-</span></div>
+              <div class="kv"><b>Intent</b><span id="intentState">-</span></div>
+              <div class="kv"><b>Target</b><span id="targetState">-</span></div>
+              <div class="kv"><b>Scene</b><span id="sceneState">-</span></div>
+              <div class="kv"><b>Emotion</b><span id="emotionState">-</span></div>
+              <div class="kv"><b>Speech</b><span id="speechState">-</span></div>
+              <div class="kv"><b>Confidence</b><span id="confidenceState">-</span></div>
+              <div class="kv"><b>Evidence</b><span id="evidenceState">-</span></div>
+              <div class="kv"><b>Assumption</b><span id="assumptionState">-</span></div>
+              <div class="kv"><b>Next</b><span id="nextActionState">-</span></div>
+
+              <h2 class="fs-6 mt-4 mb-2">Lyric Story Board</h2>
+              <div class="kv"><b>Story 1</b><span id="story1State">-</span></div>
+              <div class="kv"><b>Story 2</b><span id="story2State">-</span></div>
+              <div class="kv"><b>Story 3</b><span id="story3State">-</span></div>
+              <div class="kv"><b>Theme</b><span id="lyricThemeState">-</span></div>
+              <div class="kv"><b>Mood</b><span id="lyricMoodState">-</span></div>
+              <div class="kv"><b>Genre</b><span id="genreHintState">-</span></div>
+              <div class="kv"><b>Narrator</b><span id="narratorState">-</span></div>
+              <div class="kv"><b>Listener</b><span id="listenerState">-</span></div>
+              <div class="kv"><b>Conflict</b><span id="conflictState">-</span></div>
+              <div class="kv"><b>Arc</b><span id="emotionalArcState">-</span></div>
+              <div class="kv"><b>Images</b><span id="keyImagesState">-</span></div>
+              <div class="kv"><b>Symbols</b><span id="symbolWordsState">-</span></div>
+              <div class="kv"><b>Hook</b><span id="hookIdeaState">-</span></div>
+              <div class="kv"><b>Verse</b><span id="verseIdeaState">-</span></div>
+              <div class="kv"><b>Pre</b><span id="preChorusIdeaState">-</span></div>
+              <div class="kv"><b>Bridge</b><span id="bridgeIdeaState">-</span></div>
+              <div class="kv"><b>Line 1</b><span id="nextLine1State">-</span></div>
+              <div class="kv"><b>Line 2</b><span id="nextLine2State">-</span></div>
+              <div class="kv"><b>Line 3</b><span id="nextLine3State">-</span></div>
+              <div class="kv"><b>Rhymes</b><span id="rhymeWordsState">-</span></div>
+              <div class="kv"><b>Keywords</b><span id="keywordsState">-</span></div>
+              <div class="kv"><b>Questions</b><span id="questionsState">-</span></div>
+              <div class="kv"><b>Active Source</b><span id="sourceState">waiting</span></div>
+              <div class="kv"><b>User Mic</b><span>direct user speech, chatbot answers this</span></div>
+              <div class="kv"><b>Video Sound</b><span>PC/browser/game playback, chatbot summarizes this</span></div>
+
+              <div class="d-flex flex-wrap gap-2 mt-3">
+                <span class="badge text-bg-secondary">current context</span>
+                <span class="badge text-bg-secondary">past context</span>
+                <span class="badge text-bg-secondary">source aware</span>
+                <span class="badge text-bg-secondary">dialogue state</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="col-12 col-lg-5 col-xl-6 d-flex">
+          <div class="card panel-card w-100">
+            <h2 class="card-header fs-6 mb-0">Live Dialogue</h2>
+            <div id="chat" class="card-body scroll-area d-flex flex-column gap-2"></div>
+          </div>
+        </section>
+
+        <section class="col-12 col-lg-3 d-flex">
+          <div class="card panel-card w-100">
+            <h2 class="card-header fs-6 mb-0">Telemetry & Memory</h2>
+            <div class="card-body scroll-area">
+              <div class="kv"><b>User Mic RMS</b><span id="micRms">-</span></div>
+              <div class="meter border rounded bg-black mb-2"><i id="micMeter"></i></div>
+              <div class="kv"><b>Video RMS</b><span id="systemRms">-</span></div>
+              <div class="meter border rounded bg-black mb-2"><i id="systemMeter"></i></div>
+              <div class="kv"><b>Last User</b><span id="lastUser">-</span></div>
+              <div class="kv"><b>Last Video</b><span id="lastVideo">-</span></div>
+              <div class="kv"><b>Last Bot</b><span id="lastBot">-</span></div>
+              <h2 class="fs-6 mt-4 mb-2">Event Log</h2>
+              <div id="log"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const dot = document.getElementById("dot");
+    const ticker = document.getElementById("ticker");
+    const chat = document.getElementById("chat");
+    const log = document.getElementById("log");
+    const currentTopic = document.getElementById("currentTopic");
+    const storyRequirements = document.getElementById("storyRequirements");
+    const storyRequirementsState = document.getElementById("storyRequirementsState");
+    const topicState = document.getElementById("topicState");
+    const contentState = document.getElementById("contentState");
+    const placeState = document.getElementById("placeState");
+    const locationState = document.getElementById("locationState");
+    const timeState = document.getElementById("timeState");
+    const doingState = document.getElementById("doingState");
+    const whoState = document.getElementById("whoState");
+    const whatState = document.getElementById("whatState");
+    const whereState = document.getElementById("whereState");
+    const whenState = document.getElementById("whenState");
+    const whyState = document.getElementById("whyState");
+    const howState = document.getElementById("howState");
+    const intentState = document.getElementById("intentState");
+    const targetState = document.getElementById("targetState");
+    const sceneState = document.getElementById("sceneState");
+    const emotionState = document.getElementById("emotionState");
+    const speechState = document.getElementById("speechState");
+    const confidenceState = document.getElementById("confidenceState");
+    const evidenceState = document.getElementById("evidenceState");
+    const assumptionState = document.getElementById("assumptionState");
+    const nextActionState = document.getElementById("nextActionState");
+    const story1State = document.getElementById("story1State");
+    const story2State = document.getElementById("story2State");
+    const story3State = document.getElementById("story3State");
+    const lyricThemeState = document.getElementById("lyricThemeState");
+    const lyricMoodState = document.getElementById("lyricMoodState");
+    const genreHintState = document.getElementById("genreHintState");
+    const narratorState = document.getElementById("narratorState");
+    const listenerState = document.getElementById("listenerState");
+    const conflictState = document.getElementById("conflictState");
+    const emotionalArcState = document.getElementById("emotionalArcState");
+    const keyImagesState = document.getElementById("keyImagesState");
+    const symbolWordsState = document.getElementById("symbolWordsState");
+    const hookIdeaState = document.getElementById("hookIdeaState");
+    const verseIdeaState = document.getElementById("verseIdeaState");
+    const preChorusIdeaState = document.getElementById("preChorusIdeaState");
+    const bridgeIdeaState = document.getElementById("bridgeIdeaState");
+    const nextLine1State = document.getElementById("nextLine1State");
+    const nextLine2State = document.getElementById("nextLine2State");
+    const nextLine3State = document.getElementById("nextLine3State");
+    const rhymeWordsState = document.getElementById("rhymeWordsState");
+    const keywordsState = document.getElementById("keywordsState");
+    const questionsState = document.getElementById("questionsState");
+    const sourceState = document.getElementById("sourceState");
+    const micRms = document.getElementById("micRms");
+    const systemRms = document.getElementById("systemRms");
+    const micMeter = document.getElementById("micMeter");
+    const systemMeter = document.getElementById("systemMeter");
+    const lastUser = document.getElementById("lastUser");
+    const lastVideo = document.getElementById("lastVideo");
+    const lastBot = document.getElementById("lastBot");
+
+    function sourceName(source) {
+      if (source === "mic") return "User Mic";
+      if (source === "system") return "Video Sound";
+      if (source === "bot") return "Chatbot";
+      return source || "System";
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    }
+
+    function addChat(source, text, time, type) {
+      const msg = document.createElement("div");
+      const role = type === "ai" ? "bot" : source;
+      const tone = role === "bot" ? "border-warning bg-warning bg-opacity-10"
+        : role === "mic" ? "border-primary bg-primary bg-opacity-10"
+        : "border-info bg-info bg-opacity-10";
+      msg.className = `message ${role} border rounded p-3 small ${tone}`;
+      msg.innerHTML = `<span class="d-block text-secondary mb-1">${time || "--:--:--"} - ${sourceName(role)}</span>${escapeHtml(text)}`;
+      chat.prepend(msg);
+      while (chat.children.length > 40) chat.lastChild.remove();
+      chat.scrollTop = 0;
+    }
+
+    function addLog(event) {
+      const line = document.createElement("div");
+      line.className = "border-bottom py-2 small text-secondary";
+      line.innerHTML = `<strong class="text-body">${event.time || "--:--:--"}</strong> ${escapeHtml(sourceName(event.source))} - ${escapeHtml(event.text || event.state || "")}`;
+      log.prepend(line);
+      while (log.children.length > 24) log.lastChild.remove();
+    }
+
+    function setMeter(source, rms) {
+      const value = Number(rms || 0);
+      const percent = Math.max(0, Math.min(100, value * 1200));
+      if (source === "mic") {
+        micRms.textContent = rms || "-";
+        micMeter.style.width = percent + "%";
+      } else if (source === "system") {
+        systemRms.textContent = rms || "-";
+        systemMeter.style.width = percent + "%";
+      }
+    }
+
+    function updateContextFromSpeech(source, text) {
+      const shortText = text.length > 80 ? text.slice(0, 80) + "..." : text;
+      timeState.textContent = new Date().toLocaleString("ko-KR");
+      if (source === "mic") {
+        lastUser.textContent = text;
+        topicState.textContent = shortText;
+        contentState.textContent = "User Mic: " + text;
+        placeState.textContent = "Voice Context Console";
+        locationState.textContent = "user microphone";
+        doingState.textContent = "answering the user";
+        currentTopic.textContent = "USER_MIC context: " + shortText;
+      } else if (source === "system") {
+        lastVideo.textContent = text;
+        contentState.textContent = "Video Sound: " + text;
+        placeState.textContent = "Voice Context Console";
+        locationState.textContent = "PC/browser/game/video playback";
+        doingState.textContent = "summarizing video sound";
+        if (topicState.textContent === "-") topicState.textContent = "video sound detected";
+        currentTopic.textContent = "VIDEO_SOUND context: " + shortText;
+      }
+      sourceState.textContent = `${sourceName(source)} active`;
+    }
+
+    function updateClock() {
+      timeState.textContent = new Date().toLocaleString("ko-KR");
+    }
+
+    function setIfPresent(element, value) {
+      if (value !== undefined && value !== null && String(value).trim() !== "") element.textContent = value;
+    }
+
+    let storySaveTimer = null;
+
+    async function loadStoryRequirements() {
+      try {
+        const response = await fetch("/story-requirements", { cache: "no-store" });
+        const data = await response.json();
+        storyRequirements.value = data.story_requirements || "";
+        storyRequirementsState.textContent = "Autosave: loaded";
+      } catch {
+        storyRequirementsState.textContent = "Autosave: load failed";
+      }
+    }
+
+    async function saveStoryRequirements() {
+      try {
+        await fetch("/story-requirements", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ story_requirements: storyRequirements.value }),
+        });
+        storyRequirementsState.textContent = "Autosave: saved";
+      } catch {
+        storyRequirementsState.textContent = "Autosave: save failed";
+      }
+    }
+
+    storyRequirements.addEventListener("input", () => {
+      storyRequirementsState.textContent = "Autosave: saving...";
+      clearTimeout(storySaveTimer);
+      storySaveTimer = setTimeout(saveStoryRequirements, 350);
+    });
+
+    function updateContextFromAi(event) {
+      setIfPresent(topicState, event.topic);
+      setIfPresent(contentState, event.content);
+      setIfPresent(placeState, event.place);
+      setIfPresent(locationState, event.location);
+      setIfPresent(timeState, event.time);
+      setIfPresent(doingState, event.doing);
+      setIfPresent(whoState, event.who);
+      setIfPresent(whatState, event.what);
+      setIfPresent(whereState, event.where);
+      setIfPresent(whenState, event.when);
+      setIfPresent(whyState, event.why);
+      setIfPresent(howState, event.how);
+      setIfPresent(intentState, event.intent);
+      setIfPresent(targetState, event.target);
+      setIfPresent(sceneState, event.scene);
+      setIfPresent(emotionState, event.emotion);
+      setIfPresent(speechState, event.speech_state);
+      setIfPresent(confidenceState, event.confidence);
+      setIfPresent(evidenceState, event.evidence);
+      setIfPresent(assumptionState, event.assumption);
+      setIfPresent(nextActionState, event.next_action);
+      setIfPresent(story1State, event.story_1);
+      setIfPresent(story2State, event.story_2);
+      setIfPresent(story3State, event.story_3);
+      setIfPresent(lyricThemeState, event.lyric_theme);
+      setIfPresent(lyricMoodState, event.lyric_mood);
+      setIfPresent(genreHintState, event.genre_hint);
+      setIfPresent(narratorState, event.narrator);
+      setIfPresent(listenerState, event.listener);
+      setIfPresent(conflictState, event.conflict);
+      setIfPresent(emotionalArcState, event.emotional_arc);
+      setIfPresent(keyImagesState, event.key_images);
+      setIfPresent(symbolWordsState, event.symbol_words);
+      setIfPresent(hookIdeaState, event.hook_idea);
+      setIfPresent(verseIdeaState, event.verse_idea);
+      setIfPresent(preChorusIdeaState, event.pre_chorus_idea);
+      setIfPresent(bridgeIdeaState, event.bridge_idea);
+      setIfPresent(nextLine1State, event.next_line_1);
+      setIfPresent(nextLine2State, event.next_line_2);
+      setIfPresent(nextLine3State, event.next_line_3);
+      setIfPresent(rhymeWordsState, event.rhyme_words);
+      setIfPresent(keywordsState, event.keywords);
+      setIfPresent(questionsState, event.questions);
+      sourceState.textContent = `${sourceName(event.source)} analyzed by AI`;
+      const summary = event.source_summary || event.content || event.topic || "";
+      if (summary) currentTopic.textContent = `${sourceName(event.source)} AI context: ${summary}`;
+      addLog({ ...event, text: "AI context updated" });
+    }
+
+    function handle(event) {
+      dot.classList.add("live");
+      if (event.type === "speech" || event.type === "transcript") {
+        ticker.textContent = `${sourceName(event.source)}: ${event.text}`;
+        updateContextFromSpeech(event.source, event.text);
+        addChat(event.source, event.text, event.time, "speech");
+        addLog(event);
+      } else if (event.type === "ai") {
+        ticker.textContent = `AI Summary: ${event.text}`;
+        lastBot.textContent = event.text;
+        addChat("bot", event.text, event.time, "ai");
+        addLog({ ...event, source: "bot" });
+      } else if (event.type === "context") {
+        ticker.textContent = `AI Context: ${event.topic || event.content || "updated"}`;
+        updateContextFromAi(event);
+      } else if (event.type === "state") {
+        ticker.textContent = `${sourceName(event.source)}: ${event.state}${event.rms ? " " + event.rms : ""}`;
+        setMeter(event.source, event.rms);
+        addLog(event);
+      } else {
+        ticker.textContent = event.text || "system";
+        if (event.text) addChat(event.source || "system", event.text, event.time, "speech");
+        addLog(event);
+      }
+    }
+
+    const events = new EventSource("/events");
+    events.onopen = () => {
+      dot.classList.add("live");
+      ticker.textContent = "connected";
+    };
+    events.onerror = () => {
+      dot.classList.remove("live");
+      ticker.textContent = "reconnecting";
+    };
+    events.onmessage = message => {
+      try {
+        handle(JSON.parse(message.data));
+      } catch (error) {
+        handle({ type: "system", source: "system", text: "event parse error: " + error.message, time: "--:--:--" });
+      }
+    };
+
+    updateClock();
+    loadStoryRequirements();
+    setInterval(updateClock, 1000);
+
+    setTimeout(() => {
+      handle({ type: "system", source: "system", text: "Dual STT page ready.", time: "--:--:--" });
+    }, 600);
+  </script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+    crossorigin="anonymous"
+  ></script>
+</body>
+</html>
