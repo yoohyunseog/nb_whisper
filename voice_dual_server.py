@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import queue
+import re
 import socket
 import sys
 import threading
@@ -27,6 +28,7 @@ ROOT = Path(__file__).resolve().parent
 HTML_PATH = ROOT / "voice_game.html"
 SETTINGS_DIR = ROOT / "settings"
 STORY_REQUIREMENTS_PATH = SETTINGS_DIR / "lyric_story_board_requirements.json"
+TRANSCRIPT_PREFIX = "Lyric Story Board user requirements"
 
 
 @dataclass
@@ -42,7 +44,7 @@ class Config:
     capture_samplerate: int = 48000
     whisper_samplerate: int = 16000
     block_ms: int = 100
-    chunk_sec: float = 6.0
+    chunk_sec: float = 15.0
     min_rms: float = 0.003
     vad_filter: bool = True
     no_speech_threshold: float = 0.45
@@ -123,7 +125,8 @@ def is_supported_text(text: str) -> bool:
     if not compact:
         return False
     korean_count = sum(1 for char in compact if "\uac00" <= char <= "\ud7a3")
-    return korean_count >= 2
+    alpha_count = len(re.findall(r"[A-Za-z0-9]", compact))
+    return korean_count >= 2 or alpha_count >= 2
 
 
 def list_devices() -> None:
@@ -184,18 +187,34 @@ def capture_system(cfg: Config, audio_queue: queue.Queue[tuple[str, np.ndarray]]
 
 
 def transcribe(model: WhisperModel, audio: np.ndarray, cfg: Config) -> str:
-    segments, _info = model.transcribe(
-        audio,
-        language="ko",
-        task="transcribe",
-        beam_size=5,
-        best_of=5,
+    def collect_text(vad_filter: bool, no_speech_threshold: float, beam_size: int, best_of: int) -> str:
+        segments, _info = model.transcribe(
+            audio,
+            task="transcribe",
+            beam_size=beam_size,
+            best_of=best_of,
+            vad_filter=vad_filter,
+            no_speech_threshold=no_speech_threshold,
+            condition_on_previous_text=False,
+        )
+        texts = [segment.text.strip() for segment in segments if is_supported_text(segment.text)]
+        return " ".join(texts).strip()
+
+    text = collect_text(
         vad_filter=cfg.vad_filter,
         no_speech_threshold=cfg.no_speech_threshold,
-        condition_on_previous_text=False,
+        beam_size=5,
+        best_of=5,
     )
-    texts = [segment.text.strip() for segment in segments if is_supported_text(segment.text)]
-    return " ".join(texts).strip()
+    if text:
+        return text
+
+    return collect_text(
+        vad_filter=False,
+        no_speech_threshold=0.9,
+        beam_size=1,
+        best_of=1,
+    )
 
 
 def is_cuda_runtime_error(exc: RuntimeError) -> bool:
@@ -300,6 +319,23 @@ def parse_context_json(text: str) -> dict[str, str] | None:
     return {key: str(data.get(key, "-")).strip() or "-" for key in CONTEXT_KEYS}
 
 
+def load_story_requirements() -> str:
+    if not STORY_REQUIREMENTS_PATH.exists():
+        return ""
+    try:
+        data = json.loads(STORY_REQUIREMENTS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    return str(data.get("story_requirements", "")).strip()
+
+
+def format_transcript_with_requirements(text: str) -> str:
+    story_requirements = load_story_requirements()
+    if not story_requirements:
+        return text
+    return f"{TRANSCRIPT_PREFIX}: {story_requirements}\n{text}"
+
+
 def build_context_with_ai(source: str, text: str, history: list[str], cfg: Config) -> dict[str, str] | None:
     if cfg.no_ai:
         return None
@@ -376,6 +412,43 @@ def build_context_with_ai(source: str, text: str, history: list[str], cfg: Confi
     if not ai_text:
         return None
     return parse_context_json(ai_text)
+
+
+def build_lyrics_with_ai(story_board: dict[str, str], prompt: str, cfg: Config, story_requirements: str | None = None) -> str | None:
+    if cfg.no_ai:
+        return None
+    story_requirements = story_requirements if story_requirements is not None else load_story_requirements()
+    storyboard_lines = [
+        f"{key}: {value}"
+        for key, value in story_board.items()
+        if str(value or "").strip() and str(value or "").strip() != "-"
+    ]
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a Korean lyric-writing assistant. "
+                "Write original Korean song lyrics from the provided Lyric Story Board. "
+                "Use the Story Board as the source of truth for story, narrator, listener, conflict, images, symbols, hook, and emotional arc. "
+                "Follow the user's extra prompt when it does not contradict the Story Board. "
+                "Do not copy existing songs or quote copyrighted lyrics. "
+                "Return only the finished lyrics with clear section labels such as [Verse 1], [Pre-Chorus], [Chorus], [Bridge], [Outro]."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Lyric Story Board user requirements:\n"
+                f"{story_requirements or '-'}\n\n"
+                "Current Lyric Story Board:\n"
+                f"{chr(10).join(storyboard_lines) or '-'}\n\n"
+                "Additional lyric prompt:\n"
+                f"{prompt.strip() or '-'}\n\n"
+                "이 정보를 보고 바로 부를 수 있는 한국어 가사를 만들어줘."
+            ),
+        },
+    ]
+    return run_openai_compatible(messages, cfg) if cfg.ai_provider == "openai" else run_ollama(messages, cfg)
 
 
 def ai_worker(cfg: Config, hub: EventHub, ai_queue: queue.Queue[tuple[str, str, list[str]]], stop_event: threading.Event) -> None:
@@ -508,10 +581,11 @@ def stt_worker(cfg: Config, hub: EventHub, stop_event: threading.Event) -> None:
                 else:
                     raise
             if not text:
-                hub.publish({"type": "state", "source": source, "state": "no Korean speech detected", "rms": f"{level:.4f}", "text": "no Korean speech detected", "time": now_text()})
-                print(f"[{now_text()}] {source}> #{index:04d} no Korean speech detected")
+                hub.publish({"type": "state", "source": source, "state": "no supported speech detected", "rms": f"{level:.4f}", "text": "no supported speech detected", "time": now_text()})
+                print(f"[{now_text()}] {source}> #{index:04d} no supported speech detected")
                 continue
 
+            text = format_transcript_with_requirements(text)
             label = "USER_MIC" if source == "mic" else "VIDEO_SOUND"
             history.append(f"{label}: {text}")
             del history[:-12]
@@ -524,7 +598,7 @@ def stt_worker(cfg: Config, hub: EventHub, stop_event: threading.Event) -> None:
                 print(f"[{now_text()}] ai> busy, skipped summary")
 
 
-def make_handler(hub: EventHub):
+def make_handler(hub: EventHub, cfg: Config):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, _fmt: str, *_args) -> None:
             return
@@ -563,13 +637,7 @@ def make_handler(hub: EventHub):
                     hub.unsubscribe(client)
                 return
             if parsed.path == "/story-requirements":
-                value = ""
-                if STORY_REQUIREMENTS_PATH.exists():
-                    try:
-                        data = json.loads(STORY_REQUIREMENTS_PATH.read_text(encoding="utf-8"))
-                        value = str(data.get("story_requirements", ""))
-                    except (OSError, json.JSONDecodeError):
-                        value = ""
+                value = load_story_requirements()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
@@ -581,7 +649,7 @@ def make_handler(hub: EventHub):
 
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
-            if parsed.path != "/story-requirements":
+            if parsed.path not in {"/story-requirements", "/generate-lyrics"}:
                 self.send_response(404)
                 self.end_headers()
                 return
@@ -591,6 +659,34 @@ def make_handler(hub: EventHub):
                 data = json.loads(raw) if raw else {}
             except json.JSONDecodeError:
                 data = {}
+            if parsed.path == "/generate-lyrics":
+                if cfg.no_ai:
+                    self.send_response(503)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"ok": False, "error": "AI is disabled with --no-ai."}).encode("utf-8"))
+                    return
+                story_board = data.get("story_board", {})
+                if not isinstance(story_board, dict):
+                    story_board = {}
+                prompt = str(data.get("prompt", ""))
+                story_requirements = str(data.get("story_requirements", ""))
+                lyrics = build_lyrics_with_ai({str(k): str(v) for k, v in story_board.items()}, prompt, cfg, story_requirements)
+                if not lyrics:
+                    self.send_response(502)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"ok": False, "error": "AI lyric generation failed."}).encode("utf-8"))
+                    return
+                hub.publish({"type": "ai", "source": "bot", "text": "가사를 생성했습니다.", "time": now_text()})
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": True, "lyrics": lyrics}, ensure_ascii=False).encode("utf-8"))
+                return
             SETTINGS_DIR.mkdir(exist_ok=True)
             STORY_REQUIREMENTS_PATH.write_text(
                 json.dumps({"story_requirements": str(data.get("story_requirements", ""))}, ensure_ascii=False, indent=2),
@@ -615,7 +711,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-device")
     parser.add_argument("--device", choices=("cpu", "cuda", "auto"), default="cuda")
     parser.add_argument("--compute-type", default="float16")
-    parser.add_argument("--chunk-sec", type=float, default=6.0)
+    parser.add_argument("--chunk-sec", type=float, default=15.0)
     parser.add_argument("--min-rms", type=float, default=0.003)
     parser.add_argument("--vad-filter", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--no-speech-threshold", type=float, default=0.45)
@@ -664,7 +760,7 @@ def main() -> int:
     hub = EventHub()
     stop_event = threading.Event()
     threading.Thread(target=stt_worker, args=(cfg, hub, stop_event), daemon=True).start()
-    server = ThreadingHTTPServer((cfg.host, cfg.port), make_handler(hub))
+    server = ThreadingHTTPServer((cfg.host, cfg.port), make_handler(hub, cfg))
     print(f"Voice dual STT server: http://{cfg.host}:{cfg.port}")
     print(f"Source: {cfg.source} / chunk-sec={cfg.chunk_sec} / model={cfg.model}")
     try:

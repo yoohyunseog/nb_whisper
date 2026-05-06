@@ -46,7 +46,7 @@ echo.
 echo Press Ctrl+C to stop.
 echo.
 
-"%PYEXE%" -u voice_dual_server.py --model "%MODEL%" --source both --device cuda --compute-type float16 --chunk-sec 6 --min-rms 0.003 --vad-filter %EXTRA_ARGS%
+"%PYEXE%" -u voice_dual_server.py --model "%MODEL%" --source both --device cuda --compute-type float16 --chunk-sec 15 --min-rms 0.003 --no-speech-threshold 0.8 --vad-filter %EXTRA_ARGS%
 set "EXITCODE=%ERRORLEVEL%"
 echo.
 echo [EXIT] Code: %EXITCODE%

@@ -65,6 +65,31 @@
       resize: vertical;
       line-height: 1.45;
     }
+    .lyrics-prompt {
+      min-height: 74px;
+      resize: vertical;
+      line-height: 1.45;
+    }
+    .lyrics-output {
+      min-height: 160px;
+      height: auto;
+      white-space: pre-wrap;
+      overflow: visible;
+      word-break: keep-all;
+      overflow-wrap: anywhere;
+      background: #0f1620;
+    }
+    .lyrics-tools {
+      flex: 0 0 auto;
+    }
+    .lyrics-output-wrap {
+      min-height: 240px;
+      flex: 0 0 auto;
+    }
+    .dialogue-wrap {
+      min-height: 180px;
+      flex: 1 1 40%;
+    }
     .kv {
       display: grid;
       grid-template-columns: 108px minmax(0, 1fr);
@@ -208,7 +233,7 @@
               <textarea
                 id="storyRequirements"
                 class="form-control story-input mb-2"
-                placeholder="Write the story requirements the AI must follow for Lyric Story Board."
+                placeholder="Write the prefix value for Lyric Story Board."
               ></textarea>
               <div id="storyRequirementsState" class="form-text mb-3">Autosave: loading...</div>
 
@@ -273,8 +298,29 @@
 
         <section class="col-12 col-lg-5 col-xl-6 d-flex">
           <div class="card panel-card w-100">
-            <h2 class="card-header fs-6 mb-0">Live Dialogue</h2>
-            <div id="chat" class="card-body scroll-area d-flex flex-column gap-2"></div>
+            <h2 class="card-header fs-6 mb-0">Live Dialogue & Lyrics</h2>
+            <div class="card-body d-flex flex-column gap-3">
+              <div class="lyrics-tools">
+                <label for="lyricsPrompt" class="form-label small text-secondary">가사 생성 프롬프트</label>
+                <textarea
+                  id="lyricsPrompt"
+                  class="form-control lyrics-prompt mb-2"
+                  placeholder="예: 후렴을 강하게, 90년대 K-pop 발라드 느낌, 영어 한 줄 섞기"
+                ></textarea>
+                <div class="d-flex gap-2 align-items-center mb-2">
+                  <button id="generateLyricsButton" class="btn btn-primary btn-sm" type="button">가사 만들기</button>
+                  <label class="form-check form-switch small mb-0">
+                    <input id="autoLyricsToggle" class="form-check-input" type="checkbox" checked>
+                    <span class="form-check-label">자동 생성</span>
+                  </label>
+                  <span id="lyricsState" class="form-text">Lyric Story Board 대기 중</span>
+                </div>
+              </div>
+              <div class="lyrics-output-wrap d-flex flex-column">
+                <div id="lyricsOutput" class="lyrics-output border rounded p-3 small text-body"></div>
+              </div>
+              <div id="chat" class="dialogue-wrap scroll-area d-flex flex-column gap-2"></div>
+            </div>
           </div>
         </section>
 
@@ -306,6 +352,11 @@
     const currentTopic = document.getElementById("currentTopic");
     const storyRequirements = document.getElementById("storyRequirements");
     const storyRequirementsState = document.getElementById("storyRequirementsState");
+    const lyricsPrompt = document.getElementById("lyricsPrompt");
+    const generateLyricsButton = document.getElementById("generateLyricsButton");
+    const autoLyricsToggle = document.getElementById("autoLyricsToggle");
+    const lyricsState = document.getElementById("lyricsState");
+    const lyricsOutput = document.getElementById("lyricsOutput");
     const topicState = document.getElementById("topicState");
     const contentState = document.getElementById("contentState");
     const placeState = document.getElementById("placeState");
@@ -437,6 +488,10 @@
     }
 
     let storySaveTimer = null;
+    let autoLyricsTimer = null;
+    let lyricsRequestInFlight = false;
+    let pendingLyricsAfterRequest = false;
+    let lastLyricsSignature = "";
 
     async function loadStoryRequirements() {
       try {
@@ -462,11 +517,121 @@
       }
     }
 
+    function getLyricStoryBoard() {
+      return {
+        story_1: story1State.textContent,
+        story_2: story2State.textContent,
+        story_3: story3State.textContent,
+        lyric_theme: lyricThemeState.textContent,
+        lyric_mood: lyricMoodState.textContent,
+        genre_hint: genreHintState.textContent,
+        narrator: narratorState.textContent,
+        listener: listenerState.textContent,
+        conflict: conflictState.textContent,
+        emotional_arc: emotionalArcState.textContent,
+        key_images: keyImagesState.textContent,
+        symbol_words: symbolWordsState.textContent,
+        hook_idea: hookIdeaState.textContent,
+        verse_idea: verseIdeaState.textContent,
+        pre_chorus_idea: preChorusIdeaState.textContent,
+        bridge_idea: bridgeIdeaState.textContent,
+        next_line_1: nextLine1State.textContent,
+        next_line_2: nextLine2State.textContent,
+        next_line_3: nextLine3State.textContent,
+        rhyme_words: rhymeWordsState.textContent,
+        keywords: keywordsState.textContent,
+        questions: questionsState.textContent,
+      };
+    }
+
+    function buildLyricsSignature() {
+      return JSON.stringify({
+        prompt: lyricsPrompt.value.trim(),
+        story_requirements: storyRequirements.value.trim(),
+        story_board: getLyricStoryBoard(),
+      });
+    }
+
+    function hasUsableStoryBoard() {
+      const values = Object.values(getLyricStoryBoard()).map(value => String(value || "").trim());
+      return values.some(value => value && value !== "-") || storyRequirements.value.trim() || lyricsPrompt.value.trim();
+    }
+
+    function scheduleAutoLyrics(delay = 1200) {
+      if (!autoLyricsToggle.checked) return;
+      if (!hasUsableStoryBoard()) {
+        lyricsState.textContent = "Lyric Story Board 대기 중";
+        return;
+      }
+      clearTimeout(autoLyricsTimer);
+      autoLyricsTimer = setTimeout(() => generateLyrics(true), delay);
+      lyricsState.textContent = "자동 생성 예약됨";
+    }
+
+    async function generateLyrics(isAuto = false) {
+      if (lyricsRequestInFlight) {
+        pendingLyricsAfterRequest = true;
+        lyricsState.textContent = "현재 생성이 끝나면 다시 생성";
+        return;
+      }
+      const signature = buildLyricsSignature();
+      if (isAuto && signature === lastLyricsSignature) {
+        lyricsState.textContent = "자동 생성 최신 상태";
+        return;
+      }
+      if (!hasUsableStoryBoard()) {
+        lyricsState.textContent = "Lyric Story Board 대기 중";
+        return;
+      }
+      lyricsRequestInFlight = true;
+      generateLyricsButton.disabled = true;
+      lyricsState.textContent = "가사 생성 중...";
+      try {
+        const response = await fetch("/generate-lyrics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: lyricsPrompt.value,
+            story_requirements: storyRequirements.value,
+            story_board: getLyricStoryBoard(),
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || "lyric generation failed");
+        lyricsOutput.textContent = data.lyrics || "";
+        lastLyricsSignature = signature;
+        lyricsState.textContent = "가사 생성 완료";
+        lastBot.textContent = "가사를 생성했습니다.";
+        if (!isAuto) addChat("bot", data.lyrics || "", new Date().toLocaleTimeString("ko-KR"), "ai");
+      } catch (error) {
+        const detail = error && error.message ? error.message : "unknown error";
+        lyricsState.textContent = `가사 생성 실패: ${detail}`;
+      } finally {
+        lyricsRequestInFlight = false;
+        generateLyricsButton.disabled = false;
+        if (pendingLyricsAfterRequest) {
+          pendingLyricsAfterRequest = false;
+          scheduleAutoLyrics(500);
+        }
+      }
+    }
+
     storyRequirements.addEventListener("input", () => {
       storyRequirementsState.textContent = "Autosave: saving...";
       clearTimeout(storySaveTimer);
       storySaveTimer = setTimeout(saveStoryRequirements, 350);
+      scheduleAutoLyrics(1600);
     });
+    lyricsPrompt.addEventListener("input", () => scheduleAutoLyrics(900));
+    autoLyricsToggle.addEventListener("change", () => {
+      if (autoLyricsToggle.checked) {
+        scheduleAutoLyrics(200);
+      } else {
+        clearTimeout(autoLyricsTimer);
+        lyricsState.textContent = "자동 생성 꺼짐";
+      }
+    });
+    generateLyricsButton.addEventListener("click", () => generateLyrics(false));
 
     function updateContextFromAi(event) {
       setIfPresent(topicState, event.topic);
@@ -516,6 +681,7 @@
       const summary = event.source_summary || event.content || event.topic || "";
       if (summary) currentTopic.textContent = `${sourceName(event.source)} AI context: ${summary}`;
       addLog({ ...event, text: "AI context updated" });
+      scheduleAutoLyrics(1400);
     }
 
     function handle(event) {
@@ -563,6 +729,7 @@
 
     updateClock();
     loadStoryRequirements();
+    scheduleAutoLyrics(1800);
     setInterval(updateClock, 1000);
 
     setTimeout(() => {
